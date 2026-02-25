@@ -1,9 +1,7 @@
 pipeline {
   agent any
 
-  options {
-    timestamps()
-  }
+ 
 
   environment {
     NEXUS_REPO_URL = 'http://demo.demo.ins:8081/repository/sameem-bpmn-artifacts'
