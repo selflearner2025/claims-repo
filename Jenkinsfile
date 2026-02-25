@@ -49,7 +49,7 @@ pipeline {
               script: "git tag --sort=-creatordate | grep '^prod-' | head -1 || true",
               returnStdout: true
             ).trim()
-            echo "Last prod tag: ${lastProdTag}
+            echo "Last prod tag: ${lastProdTag}"
 
             echo "Last prod tag: ${lastProdTag ?: 'none found'}"
             baseCommit = lastProdTag ?: env.GIT_PREVIOUS_SUCCESSFUL_COMMIT
