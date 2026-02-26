@@ -57,7 +57,7 @@ pipeline {
           if (env.BRANCH_NAME?.startsWith('release/')) {
 
             def lastProdTag = sh(
-              script: "git tag --list 'prod-*' --sort=-creatordate | head -1",
+              script: "git tag --list 'prod-*' --sort=-version:refname | head -1",
               returnStdout: true
             ).trim()
 
