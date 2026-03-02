@@ -25,7 +25,7 @@ pipeline {
           def scmVars = checkout scm
 
           // 🔥 IMPORTANT: Ensure tags are available
-          sh 'git fetch --tags --force'
+     //     sh 'git fetch --tags --force'
 
           env.GIT_COMMIT = scmVars.GIT_COMMIT ?: ""
           env.GIT_PREVIOUS_SUCCESSFUL_COMMIT = scmVars.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ""
