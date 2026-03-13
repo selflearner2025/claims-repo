@@ -12,6 +12,9 @@ pipeline {
     // Jenkins credentials ID for Nexus
     NEXUS_CREDS = 'nexus-credentials'
   }
+  tools {
+  maven 'maven-3.9'
+}
 
   stages {
 
