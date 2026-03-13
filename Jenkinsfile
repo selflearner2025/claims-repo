@@ -3,7 +3,7 @@ pipeline {
   agent any
 
   environment {
-    NEXUS_REPO_URL = 'http://demo.demo.ins:8081/repository/sameem-bpmn-artifacts'
+    NEXUS_REPO_URL = 'http://nexus-nexus-repository-manager.default.svc.cluster.local:8081'
     DOMAIN = 'claims'
 
     GROUP_ID = 'com.demo.camunda'
