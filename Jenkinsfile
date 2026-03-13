@@ -1,36 +1,32 @@
-
 pipeline {
   agent any
 
-  environment {
-    NEXUS_REPO_URL = 'http://nexus-nexus-repository-manager.default.svc.cluster.local:8081'
-    DOMAIN = 'claims'
+  tools {
+    maven 'maven-3.9'
+  }
 
+  environment {
+    NEXUS_REPO_URL = 'http://nexus-nexus-repository-manager.default.svc.cluster.local:8081/repository/sample-repo'
     GROUP_ID = 'com.demo.camunda'
     ARTIFACT_ID = 'camunda-models'
-
-    // Jenkins credentials ID for Nexus
+    DOMAIN = 'claims'
     NEXUS_CREDS = 'nexus-credentials'
   }
-  tools {
-  maven 'maven-3.9'
-}
 
   stages {
 
     stage('Init Variables') {
       steps {
         script {
-
-          // Replace unsafe characters from branch names
           def safeBranch = env.BRANCH_NAME.replaceAll('[^a-zA-Z0-9.-]', '-')
+          def timestamp = new Date().format('yyyyMMdd-HHmmss')
 
-          env.VERSION = "${safeBranch}-${env.BUILD_NUMBER}-${new Date().format('yyyyMMdd-HHmmss')}"
-          env.ARTIFACT_NAME = "${ARTIFACT_ID}-${env.VERSION}.tar.gz"
+          env.VERSION = "${safeBranch}-${env.BUILD_NUMBER}-${timestamp}"
+          env.ARTIFACT_NAME = "${env.ARTIFACT_ID}-${env.VERSION}.tar.gz"
 
           echo "Branch: ${env.BRANCH_NAME}"
-          echo "Safe Branch: ${safeBranch}"
-          echo "Artifact Name: ${env.ARTIFACT_NAME}"
+          echo "Version: ${env.VERSION}"
+          echo "Artifact: ${env.ARTIFACT_NAME}"
         }
       }
     }
@@ -40,11 +36,18 @@ pipeline {
         script {
           def scmVars = checkout scm
 
-          // Ensure tags exist
-          sh 'git fetch --tags --force'
+          sh '''
+            git fetch --tags --force
+            git fetch --unshallow || true
+          '''
 
-          env.GIT_COMMIT = scmVars.GIT_COMMIT ?: ""
-          env.GIT_PREVIOUS_SUCCESSFUL_COMMIT = scmVars.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ""
+          env.GIT_COMMIT = scmVars.GIT_COMMIT ?: sh(
+            script: "git rev-parse HEAD",
+            returnStdout: true
+          ).trim()
+
+          env.GIT_PREVIOUS_SUCCESSFUL_COMMIT =
+            scmVars.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ""
 
           echo "Current Commit: ${env.GIT_COMMIT}"
           echo "Previous Successful Commit: ${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: 'None'}"
@@ -54,33 +57,27 @@ pipeline {
 
     stage('Detect Changed Models') {
       when {
-        anyOf {
-          branch 'dev'
-          branch 'develop'
-          branch 'qa'
-          branch 'master'
-          expression { env.BRANCH_NAME?.startsWith('release/') }
+        expression {
+          env.BRANCH_NAME in ['dev','develop','qa','master'] ||
+          env.BRANCH_NAME.startsWith('release/')
         }
       }
 
       steps {
         script {
 
-          def baseCommit = null
+          def baseCommit = ""
 
-          if (env.BRANCH_NAME?.startsWith('release/')) {
+          if (env.BRANCH_NAME.startsWith('release/')) {
 
             def lastProdTag = sh(
-              script: "git tag --list 'prod-*' --sort=-version:refname | head -1",
+              script: "git tag --list 'prod-*' --sort=-v:refname | head -1",
               returnStdout: true
             ).trim()
 
             if (lastProdTag) {
-              echo "Last prod tag found: ${lastProdTag}"
+              echo "Using last prod tag: ${lastProdTag}"
               baseCommit = lastProdTag
-            } else {
-              echo "No prod tag found. Using previous successful commit."
-              baseCommit = env.GIT_PREVIOUS_SUCCESSFUL_COMMIT
             }
 
           } else {
@@ -88,20 +85,20 @@ pipeline {
           }
 
           if (!baseCommit) {
-            echo "First build detected. Using HEAD~1."
+            echo "First build detected. Using HEAD~1"
             baseCommit = sh(
               script: "git rev-parse HEAD~1",
               returnStdout: true
             ).trim()
           }
 
-          echo "Base commit: ${baseCommit}"
-          echo "Head commit: ${env.GIT_COMMIT}"
+          echo "Base Commit: ${baseCommit}"
+          echo "Head Commit: ${env.GIT_COMMIT}"
 
           def changedFiles = sh(
             script: """
-              git diff --name-only --diff-filter=AM ${baseCommit} ${env.GIT_COMMIT} |
-              grep -E '\\.(bpmn|dmn)\$' || true
+              git diff --name-only --diff-filter=AM ${baseCommit} ${env.GIT_COMMIT} \
+              | grep -E '\\.(bpmn|dmn)\$' || true
             """,
             returnStdout: true
           ).trim()
@@ -110,7 +107,7 @@ pipeline {
             echo "No BPMN/DMN changes detected."
             env.CHANGED_FILES = ""
           } else {
-            echo "Changed files:"
+            echo "Changed Models:"
             echo changedFiles
             env.CHANGED_FILES = changedFiles
           }
@@ -130,16 +127,18 @@ pipeline {
           rm -rf package
           mkdir -p package
 
-          echo "${env.CHANGED_FILES}" | while read file
+          printf "%s\\n" "${env.CHANGED_FILES}" | while IFS= read -r file
           do
-            mkdir -p package/\$(dirname \$file)
-            cp \$file package/\$file
+            mkdir -p package/\$(dirname "\$file")
+            cp "\$file" package/"\$file"
           done
 
-          tar -czf ${ARTIFACT_NAME} -C package .
+          tar -czf ${env.ARTIFACT_NAME} -C package .
           """
 
-          sh "ls -lh ${ARTIFACT_NAME}"
+          sh "ls -lh ${env.ARTIFACT_NAME}"
+
+          archiveArtifacts artifacts: "${env.ARTIFACT_NAME}", fingerprint: true
         }
       }
     }
@@ -151,24 +150,26 @@ pipeline {
 
       steps {
 
-        withCredentials([usernamePassword(
-          credentialsId: "${NEXUS_CREDS}",
-          usernameVariable: 'NEXUS_USER',
-          passwordVariable: 'NEXUS_PASS'
-        )]) {
+        withCredentials([
+          usernamePassword(
+            credentialsId: "${env.NEXUS_CREDS}",
+            usernameVariable: 'NEXUS_USER',
+            passwordVariable: 'NEXUS_PASS'
+          )
+        ]) {
 
           sh """
           mvn deploy:deploy-file \
-            -DgroupId=${GROUP_ID} \
-            -DartifactId=${ARTIFACT_ID} \
-            -Dversion=${VERSION} \
+            -DgroupId=${env.GROUP_ID} \
+            -DartifactId=${env.ARTIFACT_ID} \
+            -Dversion=${env.VERSION} \
             -Dpackaging=tar.gz \
-            -Dfile=${ARTIFACT_NAME} \
+            -Dfile=${env.ARTIFACT_NAME} \
             -DrepositoryId=sample-repo \
-            -Durl=${NEXUS_REPO_URL} \
+            -Durl=${env.NEXUS_REPO_URL} \
             -DgeneratePom=true \
-            -Dusername=${NEXUS_USER} \
-            -Dpassword=${NEXUS_PASS}
+            -Dusername=\$NEXUS_USER \
+            -Dpassword=\$NEXUS_PASS
           """
         }
       }
@@ -185,4 +186,3 @@ pipeline {
     }
   }
 }
-
