@@ -159,6 +159,7 @@ pipeline {
         ]) {
 
           sh """
+          echo $NEXUS_USER:$NEXUS_PASS 
           mvn deploy:deploy-file \
             -DgroupId=${env.GROUP_ID} \
             -DartifactId=${env.ARTIFACT_ID} \
