@@ -164,7 +164,7 @@ pipeline {
             -Dversion=${VERSION} \
             -Dpackaging=tar.gz \
             -Dfile=${ARTIFACT_NAME} \
-            -DrepositoryId=nexus \
+            -DrepositoryId=sample-repo \
             -Durl=${NEXUS_REPO_URL} \
             -DgeneratePom=true \
             -Dusername=${NEXUS_USER} \
